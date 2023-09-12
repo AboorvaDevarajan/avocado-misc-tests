@@ -5,6 +5,9 @@ perf:
 pin: !mux
     default:
         taskset: '0'
+locking: !mux
+    default:
+        locking: True
 threads: !mux
     default:
         num_threads: 10
@@ -13,13 +16,10 @@ workers: !mux
         num_workers: 10
 bytes: !mux
     default:
-        bytes: 1000
-duration: !mux
+        bytes: 0
+runtime: !mux
     default:
-        runtime: 100
-cpu_duration: !mux
-    default:
-        cputime: 10000
-mode:
+        runtime: 10
+autobench:
     default:
         autobench: False
