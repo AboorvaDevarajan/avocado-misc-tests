@@ -11,6 +11,7 @@
 #
 # See LICENSE for more details.
 # Author: Abhishek Goel<huntbag@linux.vnet.ibm.com>
+# Update: Aboorva Devarajan<aboorvad@linux.vnet.ibm.com>
 
 import json
 import os
@@ -22,9 +23,7 @@ from avocado.utils import process
 from avocado.utils import build, distro, git
 from avocado.utils.software_manager.manager import SoftwareManager
 
-
 class Schbench(Test):
-
     '''
     schbench is designed to provide detailed latency distributions for scheduler
     wakeups.
@@ -38,12 +37,37 @@ class Schbench(Test):
         Source:
         https://git.kernel.org/pub/scm/linux/kernel/git/mason/schbench.git
         '''
+        # Define a dictionary with parameter names and default values
+        DEFAULT_SCHBENCH_PARAMS = {
+            'perf_stat': '',
+            'taskset': '',
+            'locking': True,
+            'num_threads': 1,
+            'num_workers': 1,
+            'cache_footprint': 256,
+            'num_operations': 5,
+            'bytes': 0,
+            'rps': 100,
+            'runtime': 5,
+            'warmuptime': 0,
+            'autobench': False,
+            'schbench_url': 'https://git.kernel.org/pub/scm/linux/kernel/git/mason/schbench.git'
+        }
+        
+        # Update parameters from self.params
+        self.schbench_params = {
+            key: self.params.get(key, default=value)
+            for key, value in DEFAULT_SCHBENCH_PARAMS.items()
+        }
+             
         sm = SoftwareManager()
         distro_name = distro.detect().name
+
         deps = ['gcc', 'make']
         if 'Ubuntu' in distro_name:
-            deps.extend(['linux-tools-common', 'linux-tools-%s' %
-                         platform.uname()[2]])
+            deps.extend(
+                ['linux-tools-common',
+                 'linux-tools-%s' % platform.uname()[2]])
         elif distro_name in ['rhel', 'SuSE', 'fedora', 'centos']:
             deps.extend(['perf'])
         else:
@@ -53,71 +77,138 @@ class Schbench(Test):
         for package in deps:
             if not sm.check_installed(package) and not sm.install(package):
                 self.cancel("%s is needed for the test to be run" % package)
-        url = 'https://git.kernel.org/pub/scm/linux/kernel/git/mason/schbench.git'
-        schbench_url = self.params.get("schbench_url", default=url)
-        git.get_repo(schbench_url, destination_dir=self.workdir)
 
+        schbench_url = self.params.get("schbench_url",
+                                       default=self.schbench_params['schbench_url'])
+
+        git.get_repo(schbench_url, destination_dir=self.workdir)
         os.chdir(self.workdir)
         build.make(self.workdir)
 
+    def parse_schbench_data(self, data):
+
+        results = {}
+        current_category = None
+        current_percentiles = None
+
+        category_mapping = {
+            "Wakeup Latencies percentiles": "wakeup_latencies_percentiles",
+            "Request Latencies percentiles": "request_latencies_percentiles",
+            "RPS percentiles (requests)": "rps_percentiles",
+        }
+        # Find the last occurrence of "Wakeup Latencies percentiles"
+        last_occurrence_index = -1
+        for i, line in enumerate(data):
+            if "Wakeup Latencies percentiles" in line:
+                last_occurrence_index = i
+
+        # Process data starting from the last occurrence
+        if last_occurrence_index != -1:
+            current_category = None
+            current_percentiles = None
+            data = data[last_occurrence_index:]
+            for line in data:
+                for category_name, category_key in category_mapping.items():
+                    if category_name in line:
+                        current_category = category_key
+                        current_percentiles = results.setdefault(
+                            current_category, {
+                                "percentiles": [],
+                                "min_max": {}
+                            })
+                        break  # Exit the loop once a match is found
+                if current_category and line.strip():
+                    match = re.match(
+                        r'\s*(\*?)\s*(\d+\.\d+)th: (\d+)\s+\((\d+) samples\)',
+                        line)
+                    if match:
+                        percentile, latency, samples = match.group(
+                            2), match.group(3), match.group(4)
+                        current_percentile = {
+                            f"percentile_{percentile}": {
+                                "latency": latency,
+                                "samples": samples
+                            }
+                        }
+                        current_percentiles["percentiles"].append(
+                            current_percentile)
+                    elif "min=" in line:
+                        min_max_match = re.match(r'\s*min=(\d+), max=(\d+)',
+                                                 line)
+                        if min_max_match:
+                            current_percentiles["min_max"][
+                                "min"] = min_max_match.group(1)
+                            current_percentiles["min_max"][
+                                "max"] = min_max_match.group(2)
+                    elif "average rps:" in line:
+                        average_rps_match = re.match(
+                            r'average rps: (\d+\.\d+)', line)
+                        if average_rps_match:
+                            results["average_rps"] = float(
+                                average_rps_match.group(1))
+        return results
+
+    def parse_perf_data(self, data):
+        # Initialize variables to store parsed data
+        results = {}
+        in_performance_stats = False
+
+        # Use regular expressions to extract the desired information
+        for line in data:
+            if "Performance counter stats" in line:
+                in_performance_stats = True
+                continue
+            if in_performance_stats and line.strip():
+                match = re.match(
+                    r'\s*([\d,.]+)\s+([^#]+)\s+#\s*([\d,.]+)\s*([^#]+)?', line)
+                if match:
+                    raw_value = match.group(1).replace(',', '').strip()
+                    key = match.group(2).strip()
+                    unit_value = match.group(3).replace(',', '').strip()
+                    unit = match.group(4).strip() if match.group(4) else ""
+                    if key not in results:
+                        results[key] = {}
+                    results[key]["raw"] = float(raw_value)
+                    if unit:
+                        results[key][unit] = float(unit_value)
+        # Print the JSON data
+        return results
+
     def test(self):
 
-        perfstat = self.params.get('perfstat', default='')
+        # Construct the args string using list comprehension
+        args = '-m {num_threads} -t {num_workers} -p {bytes} -r {runtime} -i {runtime} \
+                -F {cache_footprint} -n {num_operations} -R {rps} -w {warmuptime} '.format(
+            **self.schbench_params)
+
+        if self.schbench_params['autobench']:
+            args += '-A '
+
+        if self.schbench_params['locking']:
+            args += '-L '
+
+        perfstat = self.schbench_params['perf_stat']
         if perfstat:
             perfstat = 'perf stat ' + perfstat
-        taskset = self.params.get('taskset', default='')
+
+        taskset = self.schbench_params['taskset']
         if taskset:
             taskset = 'taskset -c ' + taskset
-        num_threads = self.params.get('num_threads', default=10)
-        num_workers = self.params.get('num_workers', default=10)
-        bytes = self.params.get('bytes', default=1000)
-        runtime = self.params.get('runtime', default=100)
-        cputime = self.params.get('cputime', default=10000)
-        autobench = self.params.get('autobench', default=False)
-        args = '-m %s -t %s -p %s -r %s -s %s ' % (num_threads, num_workers,
-                                                   bytes, runtime, cputime)
-
-        if autobench:
-            args += '-a'
 
         cmd = "%s %s %s/schbench %s" % (perfstat, taskset, self.workdir, args)
         res = process.run(cmd, ignore_status=True, shell=True)
+
         if res.exit_status:
             self.fail("The test failed. Failed command is %s" % cmd)
 
-        records = {'runtime': runtime}
-        lines = res.stdout.decode().splitlines()
-        pattern = re.compile(r'transfer: (.*?) ops/sec (.*?)MB/s')
-        avg_rec = pattern.findall(lines[0])[0]
-        records['ops'] = avg_rec[0]
-        records['ops_rate'] = avg_rec[1]
+        data = res.stderr.decode().splitlines()
 
-        parsed_lines = []
-        count = 0
-        erlines = res.stderr.decode().splitlines()
-        for line in erlines:
-            if count:
-                parsed_lines.append(line)
-                count += 1
-                # gather logs till 99.9th percentile
-                if count == 8:
-                    break
-                continue
-            if line.startswith('Latency percentiles'):
-                count = 1
-                parsed_lines.append(line)
-        pattern = re.compile(r'\(s\) \((.*?) total samples\)')
-        records['total_samples'] = pattern.findall(parsed_lines[0])[0]
-        parsed_lines = parsed_lines[1:]
+        result = self.parse_schbench_data(data)
 
-        pattern = re.compile(r'(.*?)th: (.*?) \((.*?) samples\)')
-        for line in parsed_lines:
-            values = pattern.findall(line)[0]
-            key = values[0].replace('\t', '')
-            records[key] = values[1]
-            records['samples_%s' % key] = values[2]
+        if perfstat:
+            result.update(self.parse_perf_data(data))
 
-        json_object = json.dumps(records)
+        json_object = json.dumps(result, indent=4)
         logfile = os.path.join(self.logdir, "schbench.json")
         with open(logfile, "w") as outfile:
             outfile.write(json_object)
