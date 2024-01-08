@@ -55,25 +55,27 @@ class SmtFolding(Test):
         for package in deps:
             if not smg.check_installed(package) and not smg.install(package):
                 self.cancel("%s is needed for the test to be run" % package)
-        url = 'http://sourceforge.net/projects//ebizzy/files/ebizzy/0.3/' \
-              'ebizzy-0.3.tar.gz'
-        tarball = self.fetch_asset(self.params.get("ebizy_url", default=url),
-                                   expire='7d')
+        # Updated URL for ebizzy source (GitHub repository)
+        repo_url = 'https://github.com/linux-test-project/ltp.git'
+        # Clone the Git repository
+        repo_dir = os.path.join(self.workdir, 'ltp')
+        git_clone = f'git clone {repo_url} {repo_dir}'
+        process.run(git_clone, shell=True)
+        # Move into the ebizzy directory
+        ebizzy_dir = os.path.join(repo_dir, 'utils', 'benchmark', 'ebizzy-0.3')
+        os.chdir(ebizzy_dir)
+        process.run('chmod +x configure', shell=True)
+        patch = self.params.get(
+            'patch', default='Fix-build-issues-with-ebizzy.patch')
+        fix_patch = 'patch -p0 < %s' % (self.get_data(patch))
+        process.run(fix_patch, shell=True)
         self.cpu_unit = self.params.get('cpu_unit', default=.1)
         self.dlpar_loop = self.params.get('range', default=10)
 
-        archive.extract(tarball, self.workdir)
-        version = os.path.basename(tarball.split('.tar.')[0])
-        self.sourcedir = os.path.join(self.workdir, version)
-
-        patch = self.params.get(
-            'patch', default='Fix-build-issues-with-ebizzy.patch')
-
-        os.chdir(self.sourcedir)
-        fix_patch = 'patch -p0 < %s' % (self.get_data(patch))
-        process.run(fix_patch, shell=True)
+        # Remove the patch-related code
         process.run("./configure")
-        build.make(self.sourcedir)
+        build.make(ebizzy_dir)
+
 
     def test(self):
         '''
