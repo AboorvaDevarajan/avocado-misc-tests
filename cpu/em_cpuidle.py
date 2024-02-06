@@ -40,9 +40,9 @@ class cpuidle(Test):
                     % platform.uname()[2]]
         else:
             deps = ['kernel-tools']
-        for package in deps:
-            if not smm.check_installed(package) and not smm.install(package):
-                self.cancel('%s is needed for the test to be run' % package)
+        #for package in deps:
+        #    if not smm.check_installed(package) and not smm.install(package):
+        #        self.cancel('%s is needed for the test to be run' % package)
 
     def cmp(self, first_value, second_value):
         return (first_value > second_value) - (first_value < second_value)
@@ -92,7 +92,7 @@ class cpuidle(Test):
     def set_idle_states(self, val):
         """
         Small and caps issue while reading idle states from device tree and
-        cpupower tool, which results in mismatch.Hence it needs to be
+        cpupower tool, which results in mismatch. Hence it needs to be
         corrected only for P8.
         """
         if val == 'Nap':

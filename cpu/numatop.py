@@ -98,6 +98,7 @@ class Numatop(Test):
             for line in lines:
                 if 'mgen' in line:
                     mgen_flag = True
+                    print(line)
                     break
         if not mgen_flag:
             self.fail('Numatop failed to record mgen latency. Please check '

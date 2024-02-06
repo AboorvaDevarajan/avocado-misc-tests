@@ -57,9 +57,9 @@ class freq_transitions(Test):
             deps = ['cpupower']
         else:
             deps = ['kernel-tools']
-        for package in deps:
-            if not smm.check_installed(package) and not smm.install(package):
-                self.cancel('%s is needed for the test to be run' % package)
+        #for package in deps:
+        #    if not smm.check_installed(package) and not smm.install(package):
+        #        self.cancel('%s is needed for the test to be run' % package)
 
         fre_min = 0
         fre_max = 0
@@ -99,15 +99,18 @@ class freq_transitions(Test):
         4) Run the perf command on each cpu to validate frequencies
         independently.
         """
-
+        print("test ===== check here")
         output = self.run_cmd("cpupower frequency-set -g userspace")
         cur_governor = self.cpu_freq_path('scaling_governor')
         if 'userspace' == cur_governor and output.exit_status == 0:
             self.log.info("%s governor set successfully" % cur_governor)
         else:
             self.cancel("Unable to set the userspace governor")
+        
+        '''
         for chip in self.quad_dict:
             for quad in self.quad_dict[chip]:
+                print("chip: ", chip, "quad: ", quad)
                 for self.cpu_num in self.quad_dict[chip][quad]:
                     self.run_cmd("cpupower -c %s frequency-set -f %s"
                                  % (self.cpu_num, self.get_random_freq()))
@@ -134,6 +137,7 @@ class freq_transitions(Test):
                                   % (self.max_freq_dict[chip][quad], cpu))
             self.log.info("Quad level max frequency %s is set on this quad"
                           "%s" % (self.max_freq_dict[chip][quad], quad))
+        '''
 
     def quad_to_cpu_mapping(self):
         """

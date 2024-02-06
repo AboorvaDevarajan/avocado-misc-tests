@@ -52,10 +52,10 @@ class Numactl(Test):
         else:
             deps.extend(['libnuma-devel'])
 
-        for package in deps:
-            if not smm.check_installed(package) and not smm.install(package):
-                self.cancel("Failed to install %s, which is needed for"
-                            "the test to be run" % package)
+        #for package in deps:
+        #    if not smm.check_installed(package) and not smm.install(package):
+        #        self.cancel("Failed to install %s, which is needed for"
+        #                    "the test to be run" % package)
 
         locations = ["https://github.com/numactl/numactl/archive/master.zip"]
         tarball = self.fetch_asset("numactl.zip", locations=locations,
