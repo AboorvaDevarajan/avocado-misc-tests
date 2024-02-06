@@ -107,10 +107,10 @@ class freq_transitions(Test):
         else:
             self.cancel("Unable to set the userspace governor")
         
-        '''
         for chip in self.quad_dict:
             for quad in self.quad_dict[chip]:
                 print("chip: ", chip, "quad: ", quad)
+        '''
                 for self.cpu_num in self.quad_dict[chip][quad]:
                     self.run_cmd("cpupower -c %s frequency-set -f %s"
                                  % (self.cpu_num, self.get_random_freq()))
